@@ -1,10 +1,12 @@
+
 "use client";
 
 import { useState, useEffect, type ChangeEvent } from "react";
 import Image from "next/image";
-import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle, User, LogIn, LogOut } from "lucide-react";
+import Link from 'next/link';
+import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle, User, LogIn, LogOut, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { diagnoseDisease, type DiagnoseDiseaseOutput } from "@/ai/flows/diagnose-disease";
@@ -15,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { savePlant } from "@/lib/firestore";
 
 
 type ProcessStep = "idle" | "identifying" | "identified" | "diagnosing" | "diagnosed" | "error";
@@ -26,6 +29,8 @@ export default function Home() {
   const [plantId, setPlantId] = useState<IdentifyPlantOutput | null>(null);
   const [step, setStep] = useState<ProcessStep>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
   const { toast } = useToast();
   const { user, signUp, signIn, signOut: firebaseSignOut } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
@@ -102,7 +107,7 @@ export default function Home() {
     setError(null);
     
     try {
-      const result = await diagnoseDisease({ photoDataUri: imageDataUri, plantName: plantId.commonName });
+      const result = await diagnoseDisease({ photoDataUri: imageDataUri, plantName: plantId.commonName! });
       if (result.isHealthy || (result.diseaseDiagnoses && result.diseaseDiagnoses.length > 0)) {
         setDiagnoses(result);
         setStep("diagnosed");
@@ -124,6 +129,7 @@ export default function Home() {
     setPlantId(null);
     setError(null);
     setStep("idle");
+    setIsSaving(false);
   };
   
   const scrollToUpload = () => {
@@ -132,6 +138,39 @@ export default function Home() {
       uploadSection.scrollIntoView({ behavior: 'smooth' });
     }
   };
+
+  const handleSavePlant = async () => {
+    if (!user || !plantId || !imageDataUri) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to save a plant.',
+      });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await savePlant(user.uid, {
+        plantName: plantId.commonName,
+        latinName: plantId.latinName,
+        imageDataUri: imageDataUri,
+        diagnosis: diagnoses,
+      });
+      toast({
+        title: 'Plant Saved!',
+        description: `${plantId.commonName} has been added to your garden.`,
+      });
+    } catch(err) {
+      console.error(err);
+      toast({
+        variant: 'destructive',
+        title: 'Save Failed',
+        description: 'There was a problem saving your plant. Please try again.',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
   
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,7 +212,9 @@ export default function Home() {
         <div className="flex items-center gap-4">
           {user ? (
             <>
-              <Button variant="ghost">My Garden</Button>
+              <Button variant="ghost" asChild>
+                <Link href="/garden">My Garden</Link>
+              </Button>
               <Button onClick={handleSignOut} variant="outline" size="sm">
                 <LogOut />
                 Sign Out
@@ -380,10 +421,18 @@ export default function Home() {
                     {diagnoses.isHealthy ? `Your ${plantId?.commonName || 'plant'} appears to be healthy!` : "We've identified the following potential issues."}
                   </p>
                </div>
-               <Button onClick={handleReset} variant="outline">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Diagnose Another
-              </Button>
+               <div className="flex gap-2">
+                {user && (
+                    <Button onClick={handleSavePlant} disabled={isSaving}>
+                      {isSaving ? <LoaderCircle className="animate-spin" /> : <Save />}
+                      Save to Garden
+                    </Button>
+                  )}
+                <Button onClick={handleReset} variant="outline">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Diagnose Another
+                </Button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
