@@ -6,6 +6,7 @@ import { AuthProvider } from '@/hooks/use-auth';
 export const metadata: Metadata = {
   title: 'Agridetect',
   description: 'AI-powered plant disease diagnosis',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({

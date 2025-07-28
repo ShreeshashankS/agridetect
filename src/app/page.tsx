@@ -21,6 +21,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { savePlant } from "@/lib/firestore";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+
 
 type ProcessStep = "idle" | "identifying" | "identified" | "diagnosing" | "diagnosed" | "error";
 type ChatMessage = {
@@ -566,16 +569,16 @@ export default function Home() {
                                     <div className="flex flex-col gap-4">
                                         {chatHistory.map((message, index) => (
                                             <div key={index} className={cn("flex items-start gap-3", message.role === 'user' ? 'justify-end' : 'justify-start')}>
-                                                {message.role === 'model' && <Avatar className="h-8 w-8 border"><Avatar><Bot className="h-5 w-5"/></Avatar></Avatar>}
+                                                {message.role === 'model' && <Avatar className="h-8 w-8 border"><Bot className="h-5 w-5"/></Avatar>}
                                                 <div className={cn("max-w-[80%] rounded-lg p-3 text-sm", message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
                                                     <p>{message.content}</p>
                                                 </div>
-                                                 {message.role === 'user' && <Avatar className="h-8 w-8 border"><Avatar><User className="h-5 w-5"/></Avatar></Avatar>}
+                                                 {message.role === 'user' && <Avatar className="h-8 w-8 border"><User className="h-5 w-5"/></Avatar>}
                                             </div>
                                         ))}
                                         {isChatLoading && (
                                             <div className="flex items-center gap-3 justify-start">
-                                                <Avatar className="h-8 w-8 border"><Avatar><Bot className="h-5 w-5"/></Avatar></Avatar>
+                                                <Avatar className="h-8 w-8 border"><Bot className="h-5 w-5"/></Avatar>
                                                 <div className="bg-muted p-3 rounded-lg">
                                                     <LoaderCircle className="h-5 w-5 animate-spin" />
                                                 </div>
@@ -681,3 +684,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
