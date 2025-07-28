@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ChangeEvent } from "react";
 import Image from "next/image";
-import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle } from "lucide-react";
+import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle, User, LogIn, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -10,6 +10,12 @@ import { Progress } from "@/components/ui/progress";
 import { diagnoseDisease, type DiagnoseDiseaseOutput } from "@/ai/flows/diagnose-disease";
 import { identifyPlant, type IdentifyPlantOutput } from "@/ai/flows/identify-plant";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 
 type ProcessStep = "idle" | "identifying" | "identified" | "diagnosing" | "diagnosed" | "error";
 
@@ -21,6 +27,11 @@ export default function Home() {
   const [step, setStep] = useState<ProcessStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { user, signUp, signIn, signOut: firebaseSignOut } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -122,6 +133,32 @@ export default function Home() {
     }
   };
   
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    try {
+      await signUp(email, password);
+      setAuthOpen(false);
+    } catch (err: any) {
+      setAuthError(err.message);
+    }
+  };
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    try {
+      await signIn(email, password);
+      setAuthOpen(false);
+    } catch (err: any) {
+      setAuthError(err.message);
+    }
+  };
+  
+  const handleSignOut = async () => {
+    await firebaseSignOut();
+  }
+
   const isLoading = step === 'identifying' || step === 'diagnosing';
 
   return (
@@ -133,7 +170,22 @@ export default function Home() {
             Agridetect
           </h1>
         </div>
-        <Button onClick={scrollToUpload}>Get Started</Button>
+        <div className="flex items-center gap-4">
+          {user ? (
+            <>
+              <Button variant="ghost">My Garden</Button>
+              <Button onClick={handleSignOut} variant="outline" size="sm">
+                <LogOut />
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => setAuthOpen(true)}>
+              <User className="mr-2"/>
+              Login / Sign Up
+            </Button>
+          )}
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col items-center">
@@ -409,6 +461,68 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      <Dialog open={authOpen} onOpenChange={setAuthOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Welcome to Agridetect</DialogTitle>
+            <DialogDescription>
+              Sign in or create an account to save your plants and track their health over time.
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs defaultValue="signin" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
+            <TabsContent value="signin">
+              <form onSubmit={handleSignIn}>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Sign In</CardTitle>
+                    <CardDescription>Access your account</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signin-email">Email</Label>
+                      <Input id="signin-email" type="email" placeholder="m@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signin-password">Password</Label>
+                      <Input id="signin-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                    </div>
+                    {authError && <p className="text-destructive text-sm">{authError}</p>}
+                    <Button type="submit" className="w-full">Sign In</Button>
+                  </CardContent>
+                </Card>
+              </form>
+            </TabsContent>
+            <TabsContent value="signup">
+              <form onSubmit={handleSignUp}>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Sign Up</CardTitle>
+                    <CardDescription>Create a new account</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-email">Email</Label>
+                      <Input id="signup-email" type="email" placeholder="m@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-password">Password</Label>
+                      <Input id="signup-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)}/>
+                    </div>
+                    {authError && <p className="text-destructive text-sm">{authError}</p>}
+                    <Button type="submit" className="w-full">Create Account</Button>
+                  </CardContent>
+                </Card>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+      
       <footer className="py-6 text-center text-sm text-muted-foreground border-t">
         Powered by AI. For informational purposes only.
       </footer>
