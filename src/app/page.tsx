@@ -1,16 +1,18 @@
 
 "use client";
 
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, type ChangeEvent, useRef } from "react";
 import Image from "next/image";
 import Link from 'next/link';
-import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle, User, LogIn, LogOut, Save } from "lucide-react";
+import { Leaf, Upload, ArrowRight, LoaderCircle, AlertTriangle, RefreshCw, Bot, ShieldCheck, Sprout, CheckCircle, User, LogIn, LogOut, Save, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { diagnoseDisease, type DiagnoseDiseaseOutput } from "@/ai/flows/diagnose-disease";
 import { identifyPlant, type IdentifyPlantOutput } from "@/ai/flows/identify-plant";
+import { remedyAssistant, type RemedyAssistantInput, type RemedyAssistantOutput } from "@/ai/flows/remedy-assistant";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -18,9 +20,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { savePlant } from "@/lib/firestore";
-
+import { Textarea } from "@/components/ui/textarea";
 
 type ProcessStep = "idle" | "identifying" | "identified" | "diagnosing" | "diagnosed" | "error";
+type ChatMessage = {
+  role: 'user' | 'model';
+  content: string;
+}
 
 export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -30,6 +36,13 @@ export default function Home() {
   const [step, setStep] = useState<ProcessStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Chatbot state
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatScrollAreaRef = useRef<HTMLDivElement>(null);
+
 
   const { toast } = useToast();
   const { user, signUp, signIn, signOut: firebaseSignOut } = useAuth();
@@ -45,6 +58,16 @@ export default function Home() {
       }
     };
   }, [imagePreview]);
+  
+  useEffect(() => {
+    // Scroll to the bottom of the chat history when it updates
+    if (chatScrollAreaRef.current) {
+        chatScrollAreaRef.current.scrollTo({
+        top: chatScrollAreaRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [chatHistory]);
 
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -130,6 +153,8 @@ export default function Home() {
     setError(null);
     setStep("idle");
     setIsSaving(false);
+    setChatHistory([]);
+    setChatInput("");
   };
   
   const scrollToUpload = () => {
@@ -169,6 +194,40 @@ export default function Home() {
       });
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  const handleAskAssistant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !diagnoses || !plantId) return;
+
+    const newQuestion: ChatMessage = { role: 'user', content: chatInput };
+    setChatHistory(prev => [...prev, newQuestion]);
+    setChatInput("");
+    setIsChatLoading(true);
+
+    try {
+      // For simplicity, we use the first diagnosis's remedy as context.
+      const firstDiagnosis = diagnoses.diseaseDiagnoses[0];
+
+      const input: RemedyAssistantInput = {
+        disease: firstDiagnosis.diseaseName,
+        plantType: plantId.commonName || 'the plant',
+        initialRemedy: firstDiagnosis.remedy,
+        question: chatInput,
+        conversationHistory: chatHistory
+      };
+      
+      const result = await remedyAssistant(input);
+      const newAnswer: ChatMessage = { role: 'model', content: result.answer };
+      setChatHistory(prev => [...prev, newAnswer]);
+
+    } catch(err) {
+      console.error(err);
+      const errorAnswer: ChatMessage = { role: 'model', content: "Sorry, I'm having trouble thinking right now. Please try again in a moment." };
+      setChatHistory(prev => [...prev, errorAnswer]);
+    } finally {
+      setIsChatLoading(false);
     }
   }
   
@@ -468,42 +527,86 @@ export default function Home() {
                       </CardContent>
                   </Card>
                 ) : (
-                  diagnoses.diseaseDiagnoses.map((diagnosis, index) => (
-                    <Card key={index} className="w-full shadow-md">
-                      <CardHeader>
-                        <CardTitle className="font-headline text-2xl text-accent">
-                          {diagnosis.diseaseName}
-                        </CardTitle>
-                        <CardDescription className="flex items-center gap-2 pt-2">
-                          <span className="font-medium">Confidence:</span>
-                          <Progress value={diagnosis.confidenceScore * 100} className="w-48 bg-primary/20" />
-                          <span className="font-semibold text-foreground">{Math.round(diagnosis.confidenceScore * 100)}%</span>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <Accordion type="single" collapsible defaultValue="reason" className="w-full">
-                          <AccordionItem value="reason">
-                            <AccordionTrigger className="font-headline text-lg">Reasoning</AccordionTrigger>
+                  <Card className="w-full shadow-md">
+                    <CardHeader>
+                      <CardTitle className="font-headline text-2xl text-accent">
+                        {diagnoses.diseaseDiagnoses[0].diseaseName}
+                      </CardTitle>
+                      <CardDescription className="flex items-center gap-2 pt-2">
+                        <span className="font-medium">Confidence:</span>
+                        <Progress value={diagnoses.diseaseDiagnoses[0].confidenceScore * 100} className="w-48 bg-primary/20" />
+                        <span className="font-semibold text-foreground">{Math.round(diagnoses.diseaseDiagnoses[0].confidenceScore * 100)}%</span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Accordion type="single" collapsible defaultValue="reason" className="w-full">
+                        <AccordionItem value="reason">
+                          <AccordionTrigger className="font-headline text-lg">Reasoning</AccordionTrigger>
+                          <AccordionContent>
+                            <p className="text-base text-muted-foreground">{diagnoses.diseaseDiagnoses[0].reason}</p>
+                          </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="precautions">
+                          <AccordionTrigger className="font-headline text-lg">Precautions</AccordionTrigger>
+                          <AccordionContent>
+                             <p className="text-base text-muted-foreground">{diagnoses.diseaseDiagnoses[0].precaution}</p>
+                          </AccordionContent>
+                        </AccordionItem>
+                        <AccordionItem value="remedies">
+                          <AccordionTrigger className="font-headline text-lg">Remedies</AccordionTrigger>
+                          <AccordionContent>
+                            <p className="text-base text-muted-foreground">{diagnoses.diseaseDiagnoses[0].remedy}</p>
+                          </AccordionContent>
+                        </AccordionItem>
+                         <AccordionItem value="assistant">
+                            <AccordionTrigger className="font-headline text-lg">Ask a Follow-up Question</AccordionTrigger>
                             <AccordionContent>
-                              <p className="text-base text-muted-foreground">{diagnosis.reason}</p>
+                              <div className="flex flex-col gap-4">
+                                <ScrollArea className="h-48 w-full rounded-md border p-4" ref={chatScrollAreaRef}>
+                                    <div className="flex flex-col gap-4">
+                                        {chatHistory.map((message, index) => (
+                                            <div key={index} className={cn("flex items-start gap-3", message.role === 'user' ? 'justify-end' : 'justify-start')}>
+                                                {message.role === 'model' && <Avatar className="h-8 w-8 border"><Avatar><Bot className="h-5 w-5"/></Avatar></Avatar>}
+                                                <div className={cn("max-w-[80%] rounded-lg p-3 text-sm", message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+                                                    <p>{message.content}</p>
+                                                </div>
+                                                 {message.role === 'user' && <Avatar className="h-8 w-8 border"><Avatar><User className="h-5 w-5"/></Avatar></Avatar>}
+                                            </div>
+                                        ))}
+                                        {isChatLoading && (
+                                            <div className="flex items-center gap-3 justify-start">
+                                                <Avatar className="h-8 w-8 border"><Avatar><Bot className="h-5 w-5"/></Avatar></Avatar>
+                                                <div className="bg-muted p-3 rounded-lg">
+                                                    <LoaderCircle className="h-5 w-5 animate-spin" />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                                <form onSubmit={handleAskAssistant} className="flex gap-2">
+                                    <Textarea 
+                                        placeholder="e.g., Is there an organic alternative?"
+                                        value={chatInput}
+                                        onChange={(e) => setChatInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleAskAssistant(e as any);
+                                          }
+                                        }}
+                                        disabled={isChatLoading}
+                                        className="min-h-0"
+                                    />
+                                    <Button type="submit" disabled={isChatLoading || !chatInput.trim()} size="icon">
+                                        <Send />
+                                    </Button>
+                                </form>
+                              </div>
                             </AccordionContent>
                           </AccordionItem>
-                          <AccordionItem value="precautions">
-                            <AccordionTrigger className="font-headline text-lg">Precautions</AccordionTrigger>
-                            <AccordionContent>
-                               <p className="text-base text-muted-foreground">{diagnosis.precaution}</p>
-                            </AccordionContent>
-                          </AccordionItem>
-                          <AccordionItem value="remedies">
-                            <AccordionTrigger className="font-headline text-lg">Remedies</AccordionTrigger>
-                            <AccordionContent>
-                              <p className="text-base text-muted-foreground">{diagnosis.remedy}</p>
-                            </AccordionContent>
-                          </AccordionItem>
-                        </Accordion>
-                      </CardContent>
-                    </Card>
-                  ))
+                      </Accordion>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             </div>
